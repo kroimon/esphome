@@ -77,8 +77,10 @@ class Tuya : public Component, public uart::UARTDevice {
   void register_listener(uint8_t datapoint_id, const std::function<void(TuyaDatapoint)> &func);
   void set_datapoint_value(uint8_t datapoint_id, uint32_t value);
   void set_datapoint_value(uint8_t datapoint_id, std::string value);
+  optional<TuyaDatapoint> get_datapoint(uint8_t datapoint_id);
 #ifdef USE_TIME
   void set_time_id(time::RealTimeClock *time_id) { this->time_id_ = time_id; }
+  optional<time::RealTimeClock *> get_time_id() { return this->time_id_; }
 #endif
   void add_ignore_mcu_update_on_datapoints(uint8_t ignore_mcu_update_on_datapoints) {
     this->ignore_mcu_update_on_datapoints_.push_back(ignore_mcu_update_on_datapoints);
@@ -87,7 +89,6 @@ class Tuya : public Component, public uart::UARTDevice {
  protected:
   void handle_char_(uint8_t c);
   void handle_datapoint_(const uint8_t *buffer, size_t len);
-  optional<TuyaDatapoint> get_datapoint_(uint8_t datapoint_id);
   bool validate_message_();
 
   void handle_command_(uint8_t command, uint8_t version, const uint8_t *buffer, size_t len);

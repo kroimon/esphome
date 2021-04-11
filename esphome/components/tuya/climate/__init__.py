@@ -25,6 +25,9 @@ CONF_CURRENT_TEMPERATURE_MULTIPLIER = "current_temperature_multiplier"
 CONF_TARGET_TEMPERATURE_MULTIPLIER = "target_temperature_multiplier"
 CONF_AWAY_DATAPOINT = "away_datapoint"
 CONF_AWAY_TEMPERATURE = "away_temperature"
+CONF_MANUAL_MODE_DATAPOINT = "manual_mode_datapoint"
+CONF_SCHEDULE_DATAPOINT = "schedule_datapoint"
+CONF_SCHEDULE_TIME_INVERTED = "schedule_time_inverted"
 
 TuyaClimate = tuya_ns.class_("TuyaClimate", climate.Climate, cg.Component)
 
@@ -105,6 +108,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_TARGET_TEMPERATURE_MULTIPLIER): cv.positive_float,
             cv.Optional(CONF_AWAY_DATAPOINT): cv.uint8_t,
             cv.Optional(CONF_AWAY_TEMPERATURE): cv.temperature,
+            cv.Optional(CONF_MANUAL_MODE_DATAPOINT): cv.uint8_t,
+            cv.Optional(CONF_SCHEDULE_DATAPOINT): cv.uint8_t,
+            cv.Optional(CONF_SCHEDULE_TIME_INVERTED, default=True): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.has_at_least_one_key(CONF_TARGET_TEMPERATURE_DATAPOINT, CONF_SWITCH_DATAPOINT),
@@ -178,3 +184,8 @@ async def to_code(config):
         cg.add(var.set_away_id(config[CONF_AWAY_DATAPOINT]))
     if CONF_AWAY_TEMPERATURE in config:
         cg.add(var.set_away_temperature(config[CONF_AWAY_TEMPERATURE]))
+    if CONF_MANUAL_MODE_DATAPOINT in config:
+        cg.add(var.set_manual_mode_id(config[CONF_MANUAL_MODE_DATAPOINT]))
+    if CONF_SCHEDULE_DATAPOINT in config:
+        cg.add(var.set_schedule_id(config[CONF_SCHEDULE_DATAPOINT]))
+        cg.add(var.set_schedule_time_inverted(config[CONF_SCHEDULE_TIME_INVERTED]))

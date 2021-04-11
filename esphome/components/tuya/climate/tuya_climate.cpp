@@ -28,8 +28,8 @@ void TuyaClimate::setup() {
     this->parent_->register_listener(*this->active_state_id_, [this](TuyaDatapoint datapoint) {
       ESP_LOGV(TAG, "MCU reported active state is: %u", datapoint.value_enum);
       this->active_state_ = datapoint.value_enum;
-      this->compute_state_();
-      this->publish_state();
+      if (this->compute_state_())
+        this->publish_state();
     });
   } else {
     if (this->heating_state_pin_ != nullptr) {
@@ -66,13 +66,27 @@ void TuyaClimate::setup() {
       this->publish_state();
     });
   }
+  if (this->manual_mode_id_.has_value()) {
+    this->parent_->register_listener(*this->manual_mode_id_, [this](TuyaDatapoint datapoint) {
+      this->manual_mode_ = datapoint.value_bool;
+      ESP_LOGV(TAG, "MCU reported manual mode is: %s", ONOFF(this->manual_mode_));
+      if (this->compute_target_temperature_())
+        this->publish_state();
+    });
+  }
+  if (this->schedule_id_.has_value()) {
+    this->parent_->register_listener(*this->schedule_id_, [this](TuyaDatapoint datapoint) {
+      ESP_LOGV(TAG, "MCU reported schedule");
+      if (this->compute_target_temperature_())
+        this->publish_state();
+    });
+  }
 }
 
 void TuyaClimate::loop() {
-  if (this->active_state_id_.has_value())
-    return;
-
   bool state_changed = false;
+
+  // Read heating and cooling state pins, if used
   if (this->heating_state_pin_ != nullptr) {
     bool heating_state = this->heating_state_pin_->digital_read();
     if (heating_state != this->heating_state_) {
@@ -89,6 +103,21 @@ void TuyaClimate::loop() {
       state_changed = true;
     }
   }
+
+#ifdef USE_TIME
+  // Recalculate target temperature every minute
+  if (this->schedule_id_.has_value() && this->parent_->get_time_id().has_value()) {
+    auto time_id = *this->parent_->get_time_id();
+    time::ESPTime now = time_id->now();
+    if (now.is_valid()) {
+      int schedule_check_time = (now.hour * 60 + now.minute);
+      if (schedule_check_time != this->last_schedule_check_time) {
+        this->last_schedule_check_time = schedule_check_time;
+        state_changed |= compute_target_temperature_();
+      }
+    }
+  }
+#endif
 
   if (state_changed) {
     this->compute_state_();
@@ -145,24 +174,79 @@ void TuyaClimate::dump_config() {
     ESP_LOGCONFIG(TAG, "  Away has datapoint ID %u", *this->away_id_);
 }
 
-void TuyaClimate::compute_target_temperature_() {
+bool TuyaClimate::compute_target_temperature_() {
   if (this->away && this->away_temperature_.has_value()) {
-    this->target_temperature = *this->away_temperature_;
-  } else {
-    this->target_temperature = this->target_temperature_manual_;
+    return set_target_temperature_(*this->away_temperature_);
   }
+#ifdef USE_TIME
+  else if (!this->manual_mode_ && this->schedule_id_.has_value() && this->parent_->get_time_id().has_value()) {
+    auto schedule_datapoint = this->parent_->get_datapoint(*this->schedule_id_);
+    auto time_id = *this->parent_->get_time_id();
+    auto now = time_id->now();
+
+    if (schedule_datapoint.has_value() && (*schedule_datapoint).type == TuyaDatapointType::RAW && now.is_valid()) {
+      auto schedule = (*schedule_datapoint).value_raw;
+      auto schedule_size = schedule.size();
+
+      if (schedule_size == 54 || schedule_size == 36) {
+        // Default schedule for BHT-3000 (entry format: MM.HH.TT - schedule_size: 54)
+        // 00.06.28|00.08.1E|1E.0B.1E|1E.0D.1E|00.11.2C|00.16.1E -- Monday-Friday
+        // 00.06.28|00.08.28|1E.0B.28|1E.0D.28|00.11.28|00.16.1E -- Saturday
+        // 00.06.28|00.08.28|1E.0B.28|1E.0D.28|00.11.28|00.16.1E -- Sunday
+
+        uint8_t entry = (schedule_size == 54) ? (now.day_of_week == 1 ? 12 : (now.day_of_week == 7 ? 6 : 0))
+                                              : (now.day_of_week == 1 || now.day_of_week == 7 ? 6 : 0);
+
+        // Entry format may be MM.HH.TT (little-endian / inverted time) or HH.MM.TT (big-endian / non-inverted time)
+        uint8_t hour_offset = this->schedule_time_inverted_ ? 1 : 0;
+        uint8_t minute_offset = this->schedule_time_inverted_ ? 0 : 1;
+
+        uint8_t hour = schedule[entry * 3 + hour_offset];
+        uint8_t minute = schedule[entry * 3 + minute_offset];
+        if (now.hour < hour || (now.hour == hour && now.minute < minute)) {
+          // Current time is before the start time of the first entry; use last entry of previous day
+          entry = (schedule_size == 54) ? (now.day_of_week == 2 ? 17 : (now.day_of_week == 1 ? 11 : 5))
+                                        : (now.day_of_week == 2 || now.day_of_week == 1 ? 11 : 5);
+        } else {
+          // Search for active entry of current day
+          for (int i = 1; i <= 5; i++) {
+            hour = schedule[(entry + 1) * 3 + hour_offset];
+            minute = schedule[(entry + 1) * 3 + minute_offset];
+            if (now.hour > hour || (now.hour == hour && now.minute >= minute)) {
+              entry++;
+            } else {
+              break;
+            }
+          }
+        }
+
+        return set_target_temperature_(schedule[entry * 3 + 2] * this->target_temperature_multiplier_);
+      } else {
+        ESP_LOGV(TAG, "Unknown schedule size of %d bytes", schedule_size);
+      }
+    }
+  }
+#endif
+
+  return set_target_temperature_(this->target_temperature_manual_);
 }
 
-void TuyaClimate::compute_state_() {
+bool TuyaClimate::set_target_temperature_(float target_temperature) {
+  if (target_temperature == this->target_temperature)
+    return false;
+
+  this->target_temperature = target_temperature;
+  return true;
+}
+
+bool TuyaClimate::compute_state_() {
   if (isnan(this->current_temperature) || isnan(this->target_temperature)) {
     // if any control parameters are nan, go to OFF action (not IDLE!)
-    this->switch_to_action_(climate::CLIMATE_ACTION_OFF);
-    return;
+    return this->switch_to_action_(climate::CLIMATE_ACTION_OFF);
   }
 
   if (this->mode == climate::CLIMATE_MODE_OFF) {
-    this->switch_to_action_(climate::CLIMATE_ACTION_OFF);
-    return;
+    return this->switch_to_action_(climate::CLIMATE_ACTION_OFF);
   }
 
   climate::ClimateAction target_action = climate::CLIMATE_ACTION_IDLE;
@@ -194,12 +278,16 @@ void TuyaClimate::compute_state_() {
     }
   }
 
-  this->switch_to_action_(target_action);
+  return this->switch_to_action_(target_action);
 }
 
-void TuyaClimate::switch_to_action_(climate::ClimateAction action) {
+bool TuyaClimate::switch_to_action_(climate::ClimateAction action) {
   // For now this just sets the current action but could include triggers later
+  if (action == this->action)
+    return false;
+
   this->action = action;
+  return true;
 }
 
 }  // namespace tuya

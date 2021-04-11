@@ -34,6 +34,11 @@ class TuyaClimate : public climate::Climate, public Component {
   }
   void set_away_id(uint8_t away_id) { this->away_id_ = away_id; }
   void set_away_temperature(float away_temperature) { this->away_temperature_ = away_temperature; }
+  void set_manual_mode_id(uint8_t manual_mode_id) { this->manual_mode_id_ = manual_mode_id; }
+  void set_schedule_id(uint8_t schedule_id) { this->schedule_id_ = schedule_id; }
+  void set_schedule_time_inverted(bool schedule_time_inverted) {
+    this->schedule_time_inverted_ = schedule_time_inverted;
+  }
 
   void set_tuya_parent(Tuya *parent) { this->parent_ = parent; }
 
@@ -44,13 +49,16 @@ class TuyaClimate : public climate::Climate, public Component {
   climate::ClimateTraits traits() override;
 
   /// Re-compute the target temperature of this climate controller.
-  void compute_target_temperature_();
+  bool compute_target_temperature_();
+
+  /// Sets the current target temperature.
+  bool set_target_temperature_(float target_temperature);
 
   /// Re-compute the state of this climate controller.
-  void compute_state_();
+  bool compute_state_();
 
   /// Switch the climate device to the given climate mode.
-  void switch_to_action_(climate::ClimateAction action);
+  bool switch_to_action_(climate::ClimateAction action);
 
   Tuya *parent_;
   bool supports_heat_;
@@ -68,10 +76,15 @@ class TuyaClimate : public climate::Climate, public Component {
   float hysteresis_{1.0f};
   optional<uint8_t> away_id_{};
   optional<float> away_temperature_{};
+  optional<uint8_t> manual_mode_id_{};
+  optional<uint8_t> schedule_id_{};
+  bool schedule_time_inverted_{true};
   uint8_t active_state_;
   bool heating_state_{false};
   bool cooling_state_{false};
   float target_temperature_manual_{};
+  bool manual_mode_{true};
+  int last_schedule_check_time{-1};
 };
 
 }  // namespace tuya
