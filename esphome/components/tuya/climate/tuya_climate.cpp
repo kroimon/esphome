@@ -43,8 +43,9 @@ void TuyaClimate::setup() {
   }
   if (this->target_temperature_id_.has_value()) {
     this->parent_->register_listener(*this->target_temperature_id_, [this](TuyaDatapoint datapoint) {
-      this->target_temperature = datapoint.value_int * this->target_temperature_multiplier_;
-      ESP_LOGV(TAG, "MCU reported target temperature is: %.1f", this->target_temperature);
+      this->target_temperature_manual_ = datapoint.value_int * this->target_temperature_multiplier_;
+      ESP_LOGV(TAG, "MCU reported target temperature is: %.1f", this->target_temperature_manual_);
+      this->compute_target_temperature_();
       this->compute_state_();
       this->publish_state();
     });
@@ -54,6 +55,14 @@ void TuyaClimate::setup() {
       this->current_temperature = datapoint.value_int * this->current_temperature_multiplier_;
       ESP_LOGV(TAG, "MCU reported current temperature is: %.1f", this->current_temperature);
       this->compute_state_();
+      this->publish_state();
+    });
+  }
+  if (this->away_id_.has_value()) {
+    this->parent_->register_listener(*this->away_id_, [this](TuyaDatapoint datapoint) {
+      this->away = datapoint.value_bool;
+      ESP_LOGV(TAG, "MCU reported away is: %s", ONOFF(this->away));
+      this->compute_target_temperature_();
       this->publish_state();
     });
   }
@@ -100,6 +109,12 @@ void TuyaClimate::control(const climate::ClimateCall &call) {
     this->parent_->set_datapoint_value(*this->target_temperature_id_,
                                        (int) (target_temperature / this->target_temperature_multiplier_));
   }
+
+  if (call.get_away().has_value()) {
+    const bool away = *call.get_away();
+    ESP_LOGV(TAG, "Setting away: %s", ONOFF(away));
+    this->parent_->set_datapoint_value(*this->away_id_, away);
+  }
 }
 
 climate::ClimateTraits TuyaClimate::traits() {
@@ -108,6 +123,7 @@ climate::ClimateTraits TuyaClimate::traits() {
   traits.set_supports_heat_mode(this->supports_heat_);
   traits.set_supports_cool_mode(this->supports_cool_);
   traits.set_supports_action(true);
+  traits.set_supports_away(this->away_id_.has_value());
   return traits;
 }
 
@@ -125,6 +141,16 @@ void TuyaClimate::dump_config() {
     LOG_PIN("  Heating State Pin: ", this->heating_state_pin_);
   if (this->cooling_state_pin_ != nullptr)
     LOG_PIN("  Cooling State Pin: ", this->cooling_state_pin_);
+  if (this->away_id_.has_value())
+    ESP_LOGCONFIG(TAG, "  Away has datapoint ID %u", *this->away_id_);
+}
+
+void TuyaClimate::compute_target_temperature_() {
+  if (this->away && this->away_temperature_.has_value()) {
+    this->target_temperature = *this->away_temperature_;
+  } else {
+    this->target_temperature = this->target_temperature_manual_;
+  }
 }
 
 void TuyaClimate::compute_state_() {

@@ -32,6 +32,8 @@ class TuyaClimate : public climate::Climate, public Component {
   void set_target_temperature_multiplier(float temperature_multiplier) {
     this->target_temperature_multiplier_ = temperature_multiplier;
   }
+  void set_away_id(uint8_t away_id) { this->away_id_ = away_id; }
+  void set_away_temperature(float away_temperature) { this->away_temperature_ = away_temperature; }
 
   void set_tuya_parent(Tuya *parent) { this->parent_ = parent; }
 
@@ -40,6 +42,9 @@ class TuyaClimate : public climate::Climate, public Component {
   void control(const climate::ClimateCall &call) override;
   /// Return the traits of this controller.
   climate::ClimateTraits traits() override;
+
+  /// Re-compute the target temperature of this climate controller.
+  void compute_target_temperature_();
 
   /// Re-compute the state of this climate controller.
   void compute_state_();
@@ -61,9 +66,12 @@ class TuyaClimate : public climate::Climate, public Component {
   float current_temperature_multiplier_{1.0f};
   float target_temperature_multiplier_{1.0f};
   float hysteresis_{1.0f};
+  optional<uint8_t> away_id_{};
+  optional<float> away_temperature_{};
   uint8_t active_state_;
   bool heating_state_{false};
   bool cooling_state_{false};
+  float target_temperature_manual_{};
 };
 
 }  // namespace tuya
