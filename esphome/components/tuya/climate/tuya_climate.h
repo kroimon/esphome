@@ -84,7 +84,7 @@ class TuyaClimate : public climate::Climate, public Component {
   bool cooling_state_{false};
   float target_temperature_manual_{};
   bool manual_mode_{true};
-  int last_schedule_check_time{-1};
+  int last_schedule_check_time_{-1};
 };
 
 }  // namespace tuya

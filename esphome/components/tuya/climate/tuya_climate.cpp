@@ -111,8 +111,8 @@ void TuyaClimate::loop() {
     time::ESPTime now = time_id->now();
     if (now.is_valid()) {
       int schedule_check_time = (now.hour * 60 + now.minute);
-      if (schedule_check_time != this->last_schedule_check_time) {
-        this->last_schedule_check_time = schedule_check_time;
+      if (schedule_check_time != this->last_schedule_check_time_) {
+        this->last_schedule_check_time_ = schedule_check_time;
         state_changed |= compute_target_temperature_();
       }
     }
@@ -222,7 +222,7 @@ bool TuyaClimate::compute_target_temperature_() {
 
         return set_target_temperature_(schedule[entry * 3 + 2] * this->target_temperature_multiplier_);
       } else {
-        ESP_LOGV(TAG, "Unknown schedule size of %d bytes", schedule_size);
+        ESP_LOGV(TAG, "Unknown schedule size of %lu bytes", schedule_size);
       }
     }
   }
